@@ -24,30 +24,22 @@ pros::Motor pushing_arm (PUSHING_ARM_PORT);
 pros::Motor support (SUPPORT_PORT);
 pros::Controller master (CONTROLLER_MASTER);
 
-const double grabkP = 0.005;    //TODO check if all of the k's are the right values
+const double grabkP = 0.001;    //TODO check if all of the k's are the right values
 const double grabkI = 0.0000;   //TODO maybe use the auto-Pid Tuner
 const double grabkD = 0.0000;
 
 const double pushkP = 0.001;
-const double pushkI = 0.0001;
-const double pushkD = 0.0001;
+const double pushkI = 0.0000;
+const double pushkD = 0.0000;
 
 const double supportkP = 0.001;
-const double supportkI = 0.0001;
-const double supportkD = 0.0001;
+const double supportkI = 0.0000;
+const double supportkD = 0.0000;
 
-int grab_pos = -1;
-int support_pos = -1;
+int grab_pos = 0;
+double grab_pos [4] = {0.0, 50.0, 150.0, 250.0};
 
-double grab_height0 = 0.0;//TODO change these to the right grab_heights
-double grab_height1 = 150.0;
-double grab_height2 = 250.0;
-double push_grab_height = 50.0;
-
-double support_angle0 = 0.0;
-double support_angle1 = 10.0;
-
-double push_angle[2] = {0.0, 50.0};//TODO set these to the right push_angles
+double push_angle [2] = {0.0, 50.0};//TODO set these to the right push_angles
 
 auto driveController = okapi::ChassisControllerFactory::create(LEFT_WHEELS_PORT, -RIGHT_WHEELS_PORT);
 auto leftGrabArmController = okapi::AsyncControllerFactory::posPID(-LEFT_GRAB_ARM_PORT, grabkP, grabkI, grabkD);
@@ -58,27 +50,9 @@ auto pushController = okapi::AsyncControllerFactory::posPID(PUSHING_ARM_PORT, pu
 
 //Both changes the grab position when grab_pos is given a new value and always tries to move towards what grab_pos is set at
 void change_grab_position_fn(void* param) {
-  double target = 0.0;
-  int last_grab_pos = -1;
   while(true) {
-
-    if(grab_pos != last_grab_pos) {
-      if(grab_pos == 0) {
-        target = grab_height0;
-      }
-      else if(grab_pos == 1) {
-        target = grab_height1;
-      }
-      else if(grab_pos == 2) {
-        target = grab_height2;
-      }
-      else {
-        master.set_text(0, 5, "ERROR");// TODO make sure ERROR is centered and see if the text fits on the screen
-      }
-    }
-    last_grab_pos = grab_pos;
-    leftGrabArmController.setTarget(target);
-    rightGrabArmController.setTarget(target);
+    leftGrabArmController.setTarget(grab_pos[grab_pos]);
+    rightGrabArmController.setTarget(grab_pos[grab_pos]);
     leftGrabArmController.waitUntilSettled();
     rightGrabArmController.waitUntilSettled();
 
@@ -91,22 +65,7 @@ void change_push_pos(double pos) {
   pushController.waitUntilSettled();
 }
 
-void change_support_pos_fn(void* param) {
-  while(true) {
-    if(support_pos == 0) {
-      supportController.setTarget(support_angle0);
-    }
-    else if(support_pos == 1) {
-      supportController.setTarget(support_angle1);
-    }
-    pros::lcd::print(3, "support angle %d", support_pos);
-    pros::lcd::print(1, "support angle 0 %d", support_angle0);
-    pros::lcd::print(2, "support angle 1 %d", support_angle1);
-    supportController.waitUntilSettled();
-
-    pros::delay(50);
-  }
-}
+pros::Task change_grab_position (change_grab_position_fn, (void*)"PROS", TASK_PRIORITY_DEFAULT, TASK_STACK_DEPTH_DEFAULT, "Change Grab Position");
 
 /**
  * Runs initialization code. This occurs as soon as the program is started.
@@ -116,30 +75,6 @@ void change_support_pos_fn(void* param) {
  */
 void initialize() {
   pros::lcd::initialize();
-
-  pros::Task change_grab_position (change_grab_position_fn, (void*)"PROS", 9, TASK_STACK_DEPTH_DEFAULT, "Change Grab Position");
-  pros::Task change_support_position (change_support_pos_fn, (void*)"PROS", TASK_PRIORITY_DEFAULT, TASK_STACK_DEPTH_DEFAULT, "Change Support Position");
-  change_grab_position.resume();
-
-  bool a_pressed = false;
-  while(a_pressed == false) {
-    if(master.get_analog(ANALOG_LEFT_Y) >= 15) {
-      left_grab_arm.move(master.get_analog(ANALOG_LEFT_Y));
-      right_grab_arm.move(master.get_analog(ANALOG_LEFT_Y));
-    }
-    else if(master.get_analog(ANALOG_LEFT_Y) <= -15) {
-      left_grab_arm.move(master.get_analog(ANALOG_LEFT_Y));
-      right_grab_arm.move(master.get_analog(ANALOG_LEFT_Y));
-    }
-
-    if (master.get_digital(DIGITAL_A)) {
-      master.set_text(0, 0, "Set 1 to grab_pos");
-		  left_grab_arm.tare_position();
-		  right_grab_arm.tare_position();
-
-      a_pressed = true;
-    }
-	}
 }
 
 /**
