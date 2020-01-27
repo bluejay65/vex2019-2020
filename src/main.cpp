@@ -1,18 +1,16 @@
 /* Assorted Links-
 		Automatic PID Tuner - https://pros.cs.purdue.edu/v5/okapi/api/control/util/pid-tuner.html
-
 */
 
 #include "main.h"
 #include "okapi/api.hpp"
-#define LEFT_WHEELS_PORT 20
-#define RIGHT_WHEELS_PORT 11
-#define LEFT_GRAB_ARM_PORT 9
-#define RIGHT_GRAB_ARM_PORT 2
+#define LEFT_WHEELS_PORT 2
+#define RIGHT_WHEELS_PORT 12
+#define LEFT_GRAB_ARM_PORT 8
+#define RIGHT_GRAB_ARM_PORT 10
 #define CONVEYOR_LEFT_PORT 1
-#define CONVEYOR_RIGHT_PORT 10
-#define PUSHING_ARM_PORT 12
-#define SUPPORT_PORT 13
+#define CONVEYOR_RIGHT_PORT 11
+#define PUSHING_ARM_PORT 13
 
 pros::Motor left_wheels (LEFT_WHEELS_PORT);
 pros::Motor right_wheels (RIGHT_WHEELS_PORT, true);
@@ -21,51 +19,108 @@ pros::Motor right_grab_arm (RIGHT_GRAB_ARM_PORT, true);
 pros::Motor conveyor_left (CONVEYOR_LEFT_PORT);
 pros::Motor conveyor_right (CONVEYOR_RIGHT_PORT, true);
 pros::Motor pushing_arm (PUSHING_ARM_PORT);
-pros::Motor support (SUPPORT_PORT);
 pros::Controller master (CONTROLLER_MASTER);
 
-const double grabkP = 0.001;    //TODO check if all of the k's are the right values
-const double grabkI = 0.0000;   //TODO maybe use the auto-Pid Tuner
-const double grabkD = 0.0000;
+const double grabkP = 0.0035;    //TODO check if all of the k's are the right values
+const double grabkI = 0.00015;   //TODO maybe use the auto-Pid Tuner
+const double grabkD = 0.00015;
 
-const double pushkP = 0.001;
+const double pushkP = 0.0005;
 const double pushkI = 0.0000;
 const double pushkD = 0.0000;
 
-const double supportkP = 0.001;
-const double supportkI = 0.0000;
-const double supportkD = 0.0000;
+int set_grab_pos = 0;
+double grab_pos [4] = {20.0, 50.0, 100.0, 350.0};
 
-int grab_pos = 0;
-double grab_pos [4] = {0.0, 50.0, 150.0, 250.0};
+int push_pos = 0;
+double push_angle [2] = {0.0, 2000.0};//if you realign grab_arms set to 2750.0
 
-double push_angle [2] = {0.0, 50.0};//TODO set these to the right push_angles
+int drive_speed [2] = {47, 94};
+int sped_up = 1;
+
+bool stop_conveyors = false;
+bool stop_wheels = false;
 
 auto driveController = okapi::ChassisControllerFactory::create(LEFT_WHEELS_PORT, -RIGHT_WHEELS_PORT);
-auto leftGrabArmController = okapi::AsyncControllerFactory::posPID(-LEFT_GRAB_ARM_PORT, grabkP, grabkI, grabkD);
-auto rightGrabArmController = okapi::AsyncControllerFactory::posPID(RIGHT_GRAB_ARM_PORT, grabkP, grabkI, grabkD);
-auto supportController = okapi::AsyncControllerFactory::posPID(RIGHT_GRAB_ARM_PORT, supportkP, supportkI, supportkD);
+auto leftGrabArmController = okapi::AsyncControllerFactory::posPID(LEFT_GRAB_ARM_PORT, grabkP, grabkI, grabkD);
+auto rightGrabArmController = okapi::AsyncControllerFactory::posPID(-RIGHT_GRAB_ARM_PORT, grabkP, grabkI, grabkD);
 
 auto pushController = okapi::AsyncControllerFactory::posPID(PUSHING_ARM_PORT, pushkP, pushkI, pushkD);
 
 //Both changes the grab position when grab_pos is given a new value and always tries to move towards what grab_pos is set at
-void change_grab_position_fn(void* param) {
+void change_right_grab_position_fn(void* param) {
   while(true) {
-    leftGrabArmController.setTarget(grab_pos[grab_pos]);
-    rightGrabArmController.setTarget(grab_pos[grab_pos]);
-    leftGrabArmController.waitUntilSettled();
+    rightGrabArmController.setTarget(grab_pos[set_grab_pos]);
     rightGrabArmController.waitUntilSettled();
 
     pros::delay(20);
   }
 }
+void change_left_grab_position_fn(void* param) {
+  while(true) {
+    leftGrabArmController.setTarget(grab_pos[set_grab_pos]);
+    leftGrabArmController.waitUntilSettled();
 
-void change_push_pos(double pos) {
-  pushController.setTarget(pos);
-  pushController.waitUntilSettled();
+    pros::delay(20);
+  }
 }
 
-pros::Task change_grab_position (change_grab_position_fn, (void*)"PROS", TASK_PRIORITY_DEFAULT, TASK_STACK_DEPTH_DEFAULT, "Change Grab Position");
+void conveyors_in(int speed) {
+	conveyor_right.move(speed);
+	conveyor_left.move(speed);
+}
+void conveyors_out(int speed) {
+	conveyor_right.move(-speed);
+	conveyor_left.move(-speed);
+}
+void conveyors_off() {
+	conveyor_right.move(0);
+	conveyor_left.move(0);
+}
+
+void change_push_pos_fn(void* param) {
+  while(true) {
+    pushController.setTarget(push_angle[push_pos]);
+    pushController.waitUntilSettled();
+  }
+}
+
+void drop_cubes() {
+  push_pos = 1;
+  pros::delay(500);
+  stop_conveyors = true;
+  stop_wheels = true;
+  conveyors_out(100);
+  left_wheels.move(-50);
+  right_wheels.move(-50);
+  pros::delay(1500);
+  stop_conveyors = false;
+  stop_wheels = false;
+}
+
+void print_grab_pos() {
+	master.clear_line(2);
+
+	pros::delay(50);
+
+	if(set_grab_pos == 0){
+		master.print(2, 0, "Grab Pos: _ _ _");
+	}
+	else if(set_grab_pos == 1){
+		master.print(2, 0, "Grab Pos: 1 _ _");
+	}
+	else if(set_grab_pos == 2){
+		master.print(2, 0, "Grab Pos: 1 2 _");
+	}
+	else if(set_grab_pos == 3){
+		master.print(2, 0, "Grab Pos: 1 2 3");
+	}
+}
+
+pros::Task change_right_grab_position (change_right_grab_position_fn, (void*)"PROS", TASK_PRIORITY_DEFAULT, TASK_STACK_DEPTH_DEFAULT, "Change Right Grab Position");
+pros::Task change_left_grab_position (change_left_grab_position_fn, (void*)"PROS", TASK_PRIORITY_DEFAULT, TASK_STACK_DEPTH_DEFAULT, "Change Left Grab Position");
+
+pros::Task change_push_pos (change_push_pos_fn, (void*)"PROS", TASK_PRIORITY_DEFAULT, TASK_STACK_DEPTH_DEFAULT, "Change Push Position");
 
 /**
  * Runs initialization code. This occurs as soon as the program is started.
@@ -93,7 +148,9 @@ void disabled() {}
  * This task will exit when the robot is enabled and autonomous or opcontrol
  * starts.
  */
-void competition_initialize() {}
+void competition_initialize() {
+
+}
 
 /**
  * Runs the user autonomous code. This function will be started in its own task
@@ -107,7 +164,15 @@ void competition_initialize() {}
  * from where it left off.
  */
 
-void autonomous() {}
+void autonomous() {
+	set_grab_pos = 2;
+  conveyors_out(100);
+	pros::delay(500);
+  set_grab_pos = 1;
+	pros::delay(4000);
+	conveyors_off();
+	set_grab_pos = 0;
+}
 
 /**
  * Runs the operator control code. This function will be started in its own task
@@ -123,63 +188,62 @@ void autonomous() {}
  * task, not resume it from where it left off.
  */
 void opcontrol() {
-	//okapi::PIDTunerFactory autoPID();
 	while(true) {
-		pros::lcd::set_text(4, "Left: "+ std::to_string(left_grab_arm.get_position()));
-		pros::lcd::set_text(5, "Right: "+ std::to_string(right_grab_arm.get_position()));
+		pros::lcd::set_text(2, "Left: "+ std::to_string(left_grab_arm.get_position()));
+		pros::lcd::set_text(3, "Right: "+ std::to_string(right_grab_arm.get_position()));
 
-    //Drive trains move
-    driveController.tank(master.get_analog(ANALOG_LEFT_Y), master.get_analog(ANALOG_RIGHT_Y));
+		pros::lcd::set_text(4, "Pushing: "+ std::to_string(pushing_arm.get_position()));
 
-    //Controls for grab arms
-    if(master.get_digital(DIGITAL_DOWN)) {
-      grab_pos = 0;
-      master.print(1, 0, "Grab_pos: %d", grab_pos);
+    //normal move
+    if(!stop_wheels) {
+      left_wheels.move_voltage(master.get_analog(ANALOG_LEFT_Y)*drive_speed[sped_up]);
+      right_wheels.move_voltage(master.get_analog(ANALOG_RIGHT_Y)*drive_speed[sped_up]);
     }
-    else if(master.get_digital(DIGITAL_LEFT)) {
-      grab_pos = 1;
-      master.print(1, 0, "Grab_pos: %d", grab_pos);
-    }
-    else if(master.get_digital(DIGITAL_UP)) {
-      grab_pos = 2;
-      master.print(1, 0, "Grab_pos: %d", grab_pos);
+    else {
+      left_wheels.move_voltage(0);
+      right_wheels.move_voltage(0);
     }
 
-    // controls for support arm
-    if(master.get_digital(DIGITAL_X)) {
-      support_pos = 0;
-    }
-    else if(master.get_digital(DIGITAL_B)) {
-      support_pos = 1;
+    if(master.get_digital_new_press(DIGITAL_A)) {
+      drop_cubes();
     }
 
-    if(master.get_digital(DIGITAL_R1) && master.get_digital(DIGITAL_R2)) {
-      conveyor_left.move(0);
-      conveyor_right.move(0);
+    if(master.get_digital_new_press(DIGITAL_DOWN) && set_grab_pos > 0) {
+      set_grab_pos -= 1;
+      print_grab_pos();
     }
-    else if(master.get_digital(DIGITAL_R2)) {
-      conveyor_left.move(-100);
-      conveyor_right.move(-100);
+    else if(master.get_digital_new_press(DIGITAL_UP) && set_grab_pos < 3) {
+      set_grab_pos += 1;
+      print_grab_pos();
+    }
+
+    //fast conveyors
+    if(master.get_digital(DIGITAL_R2)) {
+      conveyors_out(127);
     }
     else if(master.get_digital(DIGITAL_R1)) {
-      conveyor_left.move(100);
-      conveyor_right.move(100);
+      conveyors_in(127);
+    }
+    //slow conveyors
+    else if(master.get_digital(DIGITAL_L2)) {
+      conveyors_out(50);
+    }
+    else if(master.get_digital(DIGITAL_L1)) {
+      conveyors_in(50);
+    }
+    else if(stop_conveyors){
+      conveyors_off();
     }
 
     //Controls for pushing arm
-    if(master.get_digital(DIGITAL_L1)) {
-      change_push_pos(push_angle[0]);
+    if(master.get_digital(DIGITAL_B)) {
+      sped_up = 1;
+      push_pos = 0;
     }
-    else if(master.get_digital(DIGITAL_L2)) {
-      change_push_pos(push_angle[1]);
+    else if(master.get_digital(DIGITAL_X)) {
+      sped_up = 0;
+      push_pos = 1;
     }
-
-    //Sets the zero position of the grabbing arms if all four shoulder buttons are pressed at the same time
-		if (master.get_digital(DIGITAL_R1) && master.get_digital(DIGITAL_R2) && master.get_digital(DIGITAL_L1) && master.get_digital(DIGITAL_L2)) {
-      master.set_text(0, 0, "Set 1 pos for grab_arm");
-		  left_grab_arm.tare_position();
-		  right_grab_arm.tare_position();
-		}
 
 		pros::delay(20);
 	}
